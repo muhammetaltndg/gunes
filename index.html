@@ -117,14 +117,15 @@
     const H = () => parseInt(canvas.style.height, 10) || 300;
     const groundY = () => Math.round(H() * 0.79);
 
-    let best = Number(localStorage.getItem("cat_city_best_v2") || 0);
+    let best = Number(localStorage.getItem("cat_city_best_v3") || 0);
     bestEl.textContent = best;
 
     let score = 0;
     let lastT = performance.now();
-    let speed = 300;
+    let speed = 220;           // başlangıç daha yavaş
     let spawnTimer = 0;
     let difficulty = 0;
+    let roadOffset = 0;
 
     let gameState = "start"; // start, playing, gameover
 
@@ -156,9 +157,10 @@
 
     function reset(){
       score = 0;
-      speed = 300;
+      speed = 220;
       spawnTimer = 0;
       difficulty = 0;
+      roadOffset = 0;
       objects.length = 0;
       particles.length = 0;
 
@@ -175,9 +177,10 @@
         gameState = "playing";
       } else if(gameState === "gameover"){
         score = 0;
-        speed = 300;
+        speed = 220;
         spawnTimer = 0;
         difficulty = 0;
+        roadOffset = 0;
         objects.length = 0;
         particles.length = 0;
         cat.y = groundY() - cat.h;
@@ -228,7 +231,7 @@
       const x = W() + 50;
       const r = Math.random();
 
-      if(r < 0.40){
+      if(r < 0.56){
         objects.push({
           type:"bird",
           x,
@@ -238,15 +241,6 @@
           taken:false,
           bob: Math.random()*Math.PI*2,
           emoji:"🐦"
-        });
-      } else if(r < 0.70){
-        objects.push({
-          type:"drop",
-          x,
-          y: groundY() - 26,
-          w: 24,
-          h: 24,
-          emoji:"💧"
         });
       } else {
         objects.push({
@@ -260,7 +254,7 @@
       }
     }
 
-    function burst(x,y,emoji,colorMode="normal"){
+    function burst(x,y,emoji){
       for(let i=0;i<12;i++){
         particles.push({
           x, y,
@@ -268,8 +262,7 @@
           vy: rand(-210,20),
           life: rand(0.4,0.9),
           t: 0,
-          emoji,
-          colorMode
+          emoji
         });
       }
     }
@@ -279,7 +272,7 @@
     }
 
     function getSkyPalette(){
-      const phase = (score / 220) % 3;
+      const phase = (score / 260) % 3;
 
       if(phase < 1){
         return {
@@ -408,7 +401,6 @@
       }
     }
 
-    let roadOffset = 0;
     function drawRoad(palette, dt){
       const gy = groundY();
       ctx.fillStyle = palette.road;
@@ -417,7 +409,7 @@
       ctx.fillStyle = palette.road2;
       ctx.fillRect(0, gy + 18, W(), H() - gy - 18);
 
-      roadOffset -= speed * dt * 0.6;
+      roadOffset -= speed * dt * 0.45;
       if(roadOffset < -40) roadOffset = 0;
 
       ctx.strokeStyle = palette.line;
@@ -435,7 +427,7 @@
     function drawCat(){
       ctx.save();
       ctx.translate(cat.x + cat.w/2, cat.y + cat.h/2);
-      ctx.scale(-1, 1); // ters yöne baksın
+      ctx.scale(-1, 1);
       ctx.font = `${cat.h}px serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -477,7 +469,7 @@
       ctx.fillText("Güneş Kuş Avlasın", W()/2, H()/2 - 42);
 
       ctx.font = "500 16px system-ui";
-      ctx.fillText("🐦 Kuşları yakala, 💧 su damlaları ve 🐕 köpeklerin üstünden zıpla.", W()/2, H()/2 - 8);
+      ctx.fillText("🐦 Kuşları yakala, 🐕 köpeklerin üstünden zıpla.", W()/2, H()/2 - 8);
 
       ctx.font = "600 17px system-ui";
       ctx.fillText("Başlamak için boşluk tuşuna bas veya ekrana tıkla", W()/2, H()/2 + 28);
@@ -505,7 +497,7 @@
     function endGame(){
       gameState = "gameover";
       best = Math.max(best, Math.floor(score));
-      localStorage.setItem("cat_city_best_v2", String(best));
+      localStorage.setItem("cat_city_best_v3", String(best));
       bestEl.textContent = best;
       burst(cat.x + 20, cat.y + 16, "💥");
     }
@@ -514,9 +506,12 @@
       if(gameState !== "playing") return;
 
       difficulty += dt;
-      speed = 300 + Math.min(260, difficulty * 18 + score * 0.08);
 
-      const spawnInterval = Math.max(0.58, 1.02 - difficulty * 0.018);
+      // Daha geç hızlanma
+      speed = 220 + Math.min(140, difficulty * 5 + score * 0.025);
+
+      // Engel üretimi de daha dengeli
+      const spawnInterval = Math.max(0.82, 1.18 - difficulty * 0.008);
 
       cat.vy += cat.gravity * dt;
       cat.y += cat.vy * dt;
@@ -542,7 +537,7 @@
         if(objects[i].x < -90) objects.splice(i,1);
       }
 
-      score += dt * 2.2;
+      score += dt * 2;
 
       for(const o of objects){
         if(o.type === "bird" && !o.taken){
@@ -554,7 +549,7 @@
           }
         }
 
-        if(o.type === "drop" || o.type === "dog"){
+        if(o.type === "dog"){
           if(aabb(cat.x + 8, cat.y + 7, cat.w - 14, cat.h - 10, o.x + 4, o.y + 4, o.w - 8, o.h - 8)){
             endGame();
             break;
