@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sarman Kedi Şehir Koşusu</title>
+  <style>
+    :root{
+      --ui:#24343d;
+      --card:rgba(255,255,255,.82);
+      --line:rgba(255,255,255,.92);
+    }
+
+    *{ box-sizing:border-box; }
+
+    body{
+      margin:0;
+      min-height:100vh;
+      display:grid;
+      place-items:center;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:linear-gradient(180deg,#eef8ff,#dff1ff);
+      color:var(--ui);
+      user-select:none;
+    }
+
+    .wrap{
+      width:min(1000px,96vw);
+      display:grid;
+      gap:10px;
+    }
+
+    .hud{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .pill{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:999px;
+      padding:10px 15px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      box-shadow:0 8px 24px rgba(70,110,140,.14);
+      backdrop-filter:blur(4px);
+    }
+
+    canvas{
+      width:100%;
+      height:auto;
+      border-radius:22px;
+      border:1px solid rgba(255,255,255,.95);
+      box-shadow:0 22px 55px rgba(90,120,150,.18);
+      background:#eef8ff;
+      display:block;
+    }
+
+    .hint{
+      text-align:center;
+      font-size:13px;
+      opacity:.92;
+    }
+
+    .hint kbd{
+      border:1px solid #c8dce6;
+      background:#fff;
+      border-radius:6px;
+      padding:2px 7px;
+      font-size:12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud">
+      <div class="pill"><strong>🐈 Sarman Kedi Şehir Koşusu</strong></div>
+      <div class="pill">
+        <span>Puan: <strong id="score">0</strong></span>
+        <span>|</span>
+        <span>Rekor: <strong id="best">0</strong></span>
+      </div>
+    </div>
+
+    <canvas id="game" width="900" height="300"></canvas>
+
+    <div class="hint">
+      Başlat / Zıpla: <kbd>Boşluk</kbd> / <kbd>↑</kbd> / <kbd>Tık</kbd>
+      &nbsp; • &nbsp;
+      Yeniden başlat: <kbd>R</kbd>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const bestEl = document.getElementById("best");
+
+    function fitCanvas(){
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const cssW = canvas.clientWidth;
+      const cssH = Math.round(cssW * (300/900));
+      canvas.style.height = cssH + "px";
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    window.addEventListener("resize", fitCanvas);
+    fitCanvas();
+
+    const W = () => canvas.clientWidth;
+    const H = () => parseInt(canvas.style.height, 10) || 300;
+    const groundY = () => Math.round(H() * 0.79);
+
+    let best = Number(localStorage.getItem("cat_city_best_v2") || 0);
+    bestEl.textContent = best;
+
+    let score = 0;
+    let lastT = performance.now();
+    let speed = 300;
+    let spawnTimer = 0;
+    let difficulty = 0;
+
+    let gameState = "start"; // start, playing, gameover
+
+    const cat = {
+      x: 130,
+      y: 0,
+      w: 42,
+      h: 42,
+      vy: 0,
+      gravity: 1750,
+      jumpStrength: 650,
+      onGround: true,
+      emoji: "🐈"
+    };
+
+    const objects = [];
+    const particles = [];
+    const stars = [];
+
+    for(let i=0;i<26;i++){
+      stars.push({
+        x: Math.random()*900,
+        y: Math.random()*160,
+        r: Math.random()*1.6 + 0.5
+      });
+    }
+
+    function rand(min,max){ return Math.random()*(max-min)+min; }
+
+    function reset(){
+      score = 0;
+      speed = 300;
+      spawnTimer = 0;
+      difficulty = 0;
+      objects.length = 0;
+      particles.length = 0;
+
+      cat.y = groundY() - cat.h;
+      cat.vy = 0;
+      cat.onGround = true;
+
+      scoreEl.textContent = "0";
+      gameState = "start";
+    }
+
+    function startGame(){
+      if(gameState === "start"){
+        gameState = "playing";
+      } else if(gameState === "gameover"){
+        score = 0;
+        speed = 300;
+        spawnTimer = 0;
+        difficulty = 0;
+        objects.length = 0;
+        particles.length = 0;
+        cat.y = groundY() - cat.h;
+        cat.vy = 0;
+        cat.onGround = true;
+        scoreEl.textContent = "0";
+        gameState = "playing";
+      }
+    }
+
+    function jump(){
+      if(gameState === "start"){
+        startGame();
+        return;
+      }
+      if(gameState !== "playing") return;
+
+      if(cat.onGround){
+        cat.vy = -cat.jumpStrength;
+        cat.onGround = false;
+      }
+    }
+
+    window.addEventListener("keydown", (e)=>{
+      const k = e.key.toLowerCase();
+      if(k === " " || k === "arrowup"){
+        e.preventDefault();
+        jump();
+      }
+      if(k === "r"){
+        reset();
+        gameState = "playing";
+      }
+    }, { passive:false });
+
+    canvas.addEventListener("pointerdown", ()=>{
+      if(gameState === "start"){
+        startGame();
+      } else if(gameState === "gameover"){
+        reset();
+        gameState = "playing";
+      } else {
+        jump();
+      }
+    });
+
+    function spawnObject(){
+      const x = W() + 50;
+      const r = Math.random();
+
+      if(r < 0.40){
+        objects.push({
+          type:"bird",
+          x,
+          y: groundY() - rand(55, 120),
+          w: 28,
+          h: 28,
+          taken:false,
+          bob: Math.random()*Math.PI*2,
+          emoji:"🐦"
+        });
+      } else if(r < 0.70){
+        objects.push({
+          type:"drop",
+          x,
+          y: groundY() - 26,
+          w: 24,
+          h: 24,
+          emoji:"💧"
+        });
+      } else {
+        objects.push({
+          type:"dog",
+          x,
+          y: groundY() - 36,
+          w: 36,
+          h: 36,
+          emoji:"🐕"
+        });
+      }
+    }
+
+    function burst(x,y,emoji,colorMode="normal"){
+      for(let i=0;i<12;i++){
+        particles.push({
+          x, y,
+          vx: rand(-160,160),
+          vy: rand(-210,20),
+          life: rand(0.4,0.9),
+          t: 0,
+          emoji,
+          colorMode
+        });
+      }
+    }
+
+    function aabb(ax,ay,aw,ah,bx,by,bw,bh){
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+
+    function getSkyPalette(){
+      const phase = (score / 220) % 3;
+
+      if(phase < 1){
+        return {
+          top:"#f3fbff",
+          mid:"#dff2ff",
+          bottom:"#cfe8ff",
+          sun:"#ffd76a",
+          moon:null,
+          cityFar:"rgba(147,173,195,.38)",
+          cityNear:"rgba(120,145,168,.62)",
+          road:"#ccd5da",
+          road2:"#bac4ca",
+          line:"rgba(255,255,255,.95)",
+          cloud:"rgba(255,255,255,.88)"
+        };
+      } else if(phase < 2){
+        return {
+          top:"#ffd9ba",
+          mid:"#ffcfa8",
+          bottom:"#f7c7ae",
+          sun:"#ffb15e",
+          moon:null,
+          cityFar:"rgba(140,128,160,.35)",
+          cityNear:"rgba(112,102,135,.58)",
+          road:"#c9c0c0",
+          road2:"#b7afb0",
+          line:"rgba(255,245,230,.95)",
+          cloud:"rgba(255,245,240,.75)"
+        };
+      } else {
+        return {
+          top:"#1f3155",
+          mid:"#314e7a",
+          bottom:"#4b6a93",
+          sun:null,
+          moon:"#f4f6fb",
+          cityFar:"rgba(42,56,82,.58)",
+          cityNear:"rgba(28,38,58,.82)",
+          road:"#67707a",
+          road2:"#57606a",
+          line:"rgba(245,245,255,.9)",
+          cloud:"rgba(230,238,255,.18)"
+        };
+      }
+    }
+
+    function drawBackground(palette){
+      const grad = ctx.createLinearGradient(0,0,0,H());
+      grad.addColorStop(0,palette.top);
+      grad.addColorStop(0.58,palette.mid);
+      grad.addColorStop(1,palette.bottom);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0,0,W(),H());
+
+      if(palette.sun){
+        ctx.fillStyle = palette.sun;
+        ctx.beginPath();
+        ctx.arc(W()-110, 70, 28, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      if(palette.moon){
+        ctx.fillStyle = palette.moon;
+        ctx.beginPath();
+        ctx.arc(W()-110, 70, 22, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = palette.top;
+        ctx.beginPath();
+        ctx.arc(W()-100, 64, 18, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(255,255,255,.8)";
+        for(const s of stars){
+          ctx.beginPath();
+          ctx.arc((s.x/900)*W(), (s.y/300)*H(), s.r, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+
+      drawCloud(90, 56, 1.15, palette.cloud);
+      drawCloud(300, 88, 0.95, palette.cloud);
+      drawCloud(560, 62, 1.2, palette.cloud);
+      drawCloud(770, 92, 0.9, palette.cloud);
+    }
+
+    function drawCloud(x,y,s,color){
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 17*s, 0, Math.PI*2);
+      ctx.arc(x+18*s, y-8*s, 19*s, 0, Math.PI*2);
+      ctx.arc(x+42*s, y, 17*s, 0, Math.PI*2);
+      ctx.arc(x+21*s, y+8*s, 18*s, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    function drawCity(palette){
+      const base = groundY() - 10;
+
+      ctx.fillStyle = palette.cityFar;
+      let x = 0;
+      while(x < W()+70){
+        const w = 36 + (x % 5) * 7;
+        const h = 35 + ((x * 13) % 65);
+        ctx.fillRect(x, base - h, w, h);
+        x += w + 8;
+      }
+
+      ctx.fillStyle = palette.cityNear;
+      x = 14;
+      while(x < W()+100){
+        const w = 38 + (x % 4) * 10;
+        const h = 55 + ((x * 17) % 85);
+        ctx.fillRect(x, base - h, w, h);
+
+        const isNight = !!palette.moon;
+        const winColor = isNight ? "rgba(255,232,150,.8)" : "rgba(255,255,255,.22)";
+        ctx.fillStyle = winColor;
+        for(let wy = base - h + 10; wy < base - 8; wy += 14){
+          for(let wx = x + 7; wx < x + w - 7; wx += 12){
+            ctx.fillRect(wx, wy, 5, 7);
+          }
+        }
+        ctx.fillStyle = palette.cityNear;
+        x += w + 18;
+      }
+    }
+
+    let roadOffset = 0;
+    function drawRoad(palette, dt){
+      const gy = groundY();
+      ctx.fillStyle = palette.road;
+      ctx.fillRect(0, gy, W(), H() - gy);
+
+      ctx.fillStyle = palette.road2;
+      ctx.fillRect(0, gy + 18, W(), H() - gy - 18);
+
+      roadOffset -= speed * dt * 0.6;
+      if(roadOffset < -40) roadOffset = 0;
+
+      ctx.strokeStyle = palette.line;
+      ctx.lineWidth = 4;
+      ctx.setLineDash([18,18]);
+      ctx.lineDashOffset = roadOffset;
+      ctx.beginPath();
+      ctx.moveTo(0, gy + 26);
+      ctx.lineTo(W(), gy + 26);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+    }
+
+    function drawCat(){
+      ctx.save();
+      ctx.translate(cat.x + cat.w/2, cat.y + cat.h/2);
+      ctx.scale(-1, 1); // ters yöne baksın
+      ctx.font = `${cat.h}px serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(cat.emoji, 0, 0);
+      ctx.restore();
+    }
+
+    function drawObject(o){
+      let yy = o.y;
+      if(o.type === "bird"){
+        yy += Math.sin(performance.now()/180 + o.bob) * 4;
+      }
+      ctx.font = `${o.h}px serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(o.emoji, o.x, yy);
+    }
+
+    function drawParticles(){
+      for(const p of particles){
+        const alpha = 1 - (p.t / p.life);
+        ctx.globalAlpha = alpha;
+        ctx.font = "16px serif";
+        ctx.fillText(p.emoji, p.x, p.y);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawStartOverlay(){
+      if(gameState !== "start") return;
+
+      ctx.fillStyle = "rgba(255,255,255,.40)";
+      ctx.fillRect(0,0,W(),H());
+
+      ctx.fillStyle = "#23343c";
+      ctx.textAlign = "center";
+
+      ctx.font = "700 30px system-ui";
+      ctx.fillText("Sarman Kedi Şehir Koşusu", W()/2, H()/2 - 42);
+
+      ctx.font = "500 16px system-ui";
+      ctx.fillText("🐦 Kuşları yakala, 💧 su damlaları ve 🐕 köpeklerin üstünden zıpla.", W()/2, H()/2 - 8);
+
+      ctx.font = "600 17px system-ui";
+      ctx.fillText("Başlamak için boşluk tuşuna bas veya ekrana tıkla", W()/2, H()/2 + 28);
+    }
+
+    function drawGameOverOverlay(){
+      if(gameState !== "gameover") return;
+
+      ctx.fillStyle = "rgba(255,255,255,.48)";
+      ctx.fillRect(0,0,W(),H());
+
+      ctx.fillStyle = "#23343c";
+      ctx.textAlign = "center";
+
+      ctx.font = "700 31px system-ui";
+      ctx.fillText("Oyun Bitti!", W()/2, H()/2 - 20);
+
+      ctx.font = "600 18px system-ui";
+      ctx.fillText(`Toplam Puan: ${Math.floor(score)}`, W()/2, H()/2 + 10);
+
+      ctx.font = "500 15px system-ui";
+      ctx.fillText("Tekrar başlamak için tıkla, boşluk tuşuna bas ya da R'ye bas", W()/2, H()/2 + 38);
+    }
+
+    function endGame(){
+      gameState = "gameover";
+      best = Math.max(best, Math.floor(score));
+      localStorage.setItem("cat_city_best_v2", String(best));
+      bestEl.textContent = best;
+      burst(cat.x + 20, cat.y + 16, "💥");
+    }
+
+    function update(dt){
+      if(gameState !== "playing") return;
+
+      difficulty += dt;
+      speed = 300 + Math.min(260, difficulty * 18 + score * 0.08);
+
+      const spawnInterval = Math.max(0.58, 1.02 - difficulty * 0.018);
+
+      cat.vy += cat.gravity * dt;
+      cat.y += cat.vy * dt;
+
+      const gy = groundY() - cat.h;
+      if(cat.y >= gy){
+        cat.y = gy;
+        cat.vy = 0;
+        cat.onGround = true;
+      }
+
+      spawnTimer += dt;
+      if(spawnTimer >= spawnInterval){
+        spawnTimer = 0;
+        spawnObject();
+      }
+
+      for(const o of objects){
+        o.x -= speed * dt;
+      }
+
+      for(let i=objects.length-1;i>=0;i--){
+        if(objects[i].x < -90) objects.splice(i,1);
+      }
+
+      score += dt * 2.2;
+
+      for(const o of objects){
+        if(o.type === "bird" && !o.taken){
+          const by = o.y + Math.sin(performance.now()/180 + o.bob) * 4;
+          if(aabb(cat.x + 6, cat.y + 6, cat.w - 12, cat.h - 10, o.x + 2, by + 2, o.w - 4, o.h - 4)){
+            o.taken = true;
+            score += 20;
+            burst(o.x + 8, by + 8, "⭐");
+          }
+        }
+
+        if(o.type === "drop" || o.type === "dog"){
+          if(aabb(cat.x + 8, cat.y + 7, cat.w - 14, cat.h - 10, o.x + 4, o.y + 4, o.w - 8, o.h - 8)){
+            endGame();
+            break;
+          }
+        }
+      }
+
+      for(let i=objects.length-1;i>=0;i--){
+        if(objects[i].taken) objects.splice(i,1);
+      }
+
+      for(let i=particles.length-1;i>=0;i--){
+        const p = particles[i];
+        p.t += dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 320 * dt;
+        if(p.t >= p.life) particles.splice(i,1);
+      }
+
+      scoreEl.textContent = Math.floor(score);
+    }
+
+    function render(dt){
+      const palette = getSkyPalette();
+
+      ctx.clearRect(0,0,W(),H());
+      drawBackground(palette);
+      drawCity(palette);
+      drawRoad(palette, dt);
+
+      for(const o of objects){
+        drawObject(o);
+      }
+
+      drawCat();
+      drawParticles();
+      drawStartOverlay();
+      drawGameOverOverlay();
+    }
+
+    function loop(t){
+      const dt = Math.min(0.033, (t - lastT) / 1000);
+      lastT = t;
+
+      update(dt);
+      render(dt);
+      requestAnimationFrame(loop);
+    }
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
